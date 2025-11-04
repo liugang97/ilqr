@@ -135,6 +135,8 @@ int main() {
     // 控制代价权重矩阵 R (2×2)
     // 对角线元素分别对应 [δ_rate, a_rate] 的权重
     Eigen::MatrixXd R_fast = Eigen::MatrixXd::Identity(2, 2) * 1e2;
+    std::cout << "R_fast: " <<  std::endl;
+    std::cout << R_fast << std::endl;
     // 权重: [100, 100]，惩罚过大的转向速率和加速度变化率
 
 
