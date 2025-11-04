@@ -1,5 +1,8 @@
 workspace(name = "al_ilqr_project")
 
+# load 方法使用示例
+# load("@仓库名//包路径:文件名.bzl", <导入的函数、规则或变量名>)
+
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 # Eigen

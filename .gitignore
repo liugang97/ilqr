@@ -1,1 +1,7 @@
 cilqr/__pycache__/*
+cilqr/al_ilqr_cpp/bazel-al_ilqr_cpp
+.gitignore
+cilqr/al_ilqr_cpp/bazel-out
+.gitignore
+cilqr/al_ilqr_cpp/bazel-testlogs
+cilqr/al_ilqr_cpp/bazel-bin

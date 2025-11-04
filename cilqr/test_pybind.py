@@ -21,9 +21,8 @@ iLQR Python 绑定测试脚本 - 完整动力学自行车模型
 import sys
 import numpy as np
 # 添加 C++ 编译生成的 Python 绑定模块路径
-sys.path.append("/home/pnc/workspace/repo/ilqr/cilqr/al_ilqr_cpp/bazel-bin")
+sys.path.append("/home/pnc/Documents/github/ilqr/cilqr/al_ilqr_cpp/bazel-bin")
 import ilqr_pybind
-import copy
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -188,7 +187,7 @@ Q = np.diag([1e-1, 1e-1, 1e-0, 1e-9, 1e-6, 1e-6]) * 1e3
 
 # R: 控制输入权重 (控制输入平滑性惩罚)
 #    [delta_rate, a_rate]
-R = np.array([[1, 0], [0, 1]]) * 1e2
+R = np.diag([1, 1]) * 1e2
 # R[0,0]=100: 转角变化率权重
 # R[1,1]=100: 加速度变化率权重
 
@@ -406,6 +405,7 @@ plt.ylabel('Y Position (m)', fontsize=12)
 plt.title('iLQR Trajectory Optimization Comparison - Full Dynamic Bicycle Model', fontsize=14, fontweight='bold')
 plt.legend(fontsize=10, loc='best')
 plt.grid(True, alpha=0.3)
+plt.axis('equal')
 
 print("\n图例说明:")
 print("  🔴 红色虚线: 理想的 S 形参考轨迹")

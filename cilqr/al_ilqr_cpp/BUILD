@@ -60,6 +60,18 @@ cc_binary(
     copts = ["-O3", "-march=native", "-faligned-new", "-DEIGEN_VECTORIZE"],
 )
 
+# 调试版本（添加到 BUILD 文件）
+cc_binary(
+    name = "test_new_al_ilqr_debug",
+    srcs = ["test_new_al_ilqr.cc"],
+    deps = [
+        ":new_al_ilqr",
+        "//model:new_bicycle_node",
+        "//constraints:box_constraints",
+        "//constraints:quadratic_constraints",
+    ],
+    copts = ["-g", "-O0", "-faligned-new"],  # 调试选项：-g 添加符号, -O0
+)
 
 cc_binary(
     name = "test_dynamic_constraints_ilqr",

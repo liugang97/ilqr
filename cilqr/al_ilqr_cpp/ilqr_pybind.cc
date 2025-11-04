@@ -33,6 +33,7 @@ void bind_new_al_ilqr(py::module& m, const std::string& class_name) {
         .def("get_u_list", &NewALILQRType::get_u_list);
 }
 
+// PYBIND11_MODULE(<模块名>, m) {
 PYBIND11_MODULE(ilqr_pybind, m) {
     
     bind_constraints<6, 2, 16>(m, "Constraints6_2_16");

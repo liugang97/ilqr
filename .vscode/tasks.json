@@ -1,0 +1,15 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "rebuild_debug",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/cilqr/al_ilqr_cpp && bazel build //:test_new_al_ilqr_debug -c dbg --copt=-g --copt=-O0 --strip=never",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}

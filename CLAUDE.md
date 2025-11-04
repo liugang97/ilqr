@@ -1,422 +1,179 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+这个文件为 Claude Code (claude.ai/code) 在这个代码库中工作时提供指导。
 
-## 项目简介
+## 项目概述
 
-这是一个高性能的 **iLQR (Iterative Linear Quadratic Regulator)** 求解器,专为车辆运动规划和控制设计。项目提供了 Python 和 C++ 双实现,通过 pybind11 实现无缝集成,Python 用于快速原型开发,C++ 提供生产级性能(性能提升 30-50 倍)。
-
-核心算法基于:
-- **iLQR**: 迭代线性二次调节器
-- **ALM**: 增广拉格朗日法处理不等式约束
-- **车辆模型**: 支持横向运动学模型(4 维状态)和完整动力学模型(6 维状态)
-
----
-
-## 常用命令
-
-### Python 开发
-
-```bash
-# 进入核心代码目录
-cd cilqr
-
-# 运行基础测试 - 横向自行车模型
-python test.py
-
-# 运行完整动力学模型测试
-python test_full.py
-
-# 运行优化版本测试(使用约束对象)
-python test_fast_full.py
-
-# 测试 C++ Python 绑定 - 完整模型
-python test_pybind.py
-
-# 测试 C++ Python 绑定 - 横向模型
-python test_lat_bicycle_pybind.py
-
-# 测试障碍物避让功能
-python test_rectangle_obs_pybind.py
-```
-
-### C++ 构建与测试
-
-```bash
-# 进入 C++ 目录
-cd cilqr/al_ilqr_cpp
-
-# 构建所有目标
-bazel build //...
-
-# 构建 Python 绑定模块
-bazel build //:ilqr_pybind.so
-
-# 运行 C++ 测试 - 完整动力学模型
-bazel run //:test_new_al_ilqr
-
-# 运行 C++ 测试 - 横向模型
-bazel run //:test_lat_al_ilqr
-
-# 运行动态约束测试
-bazel run //:test_dynamic_constraints_ilqr
-
-# 运行单次优化测试
-bazel run //:test_new_al_ilqr_signal
-
-# 运行所有测试
-bazel test //...
-```
-
-### 设置 Python 绑定路径
-
-生成的 Python 绑定位于 `cilqr/al_ilqr_cpp/bazel-bin/ilqr_pybind.so`,需要在代码中添加到 Python 路径:
-
-```python
-import sys
-sys.path.append("./al_ilqr_cpp/bazel-bin")  # 从 cilqr 目录运行
-# 或
-sys.path.append("./cilqr/al_ilqr_cpp/bazel-bin")  # 从项目根目录运行
-```
-
----
+这是一个 **iLQR (iterative Linear Quadratic Regulator) 求解器**项目,使用 C++ 和 Eigen 实现,通过 pybind11 提供 Python 接口。项目采用增广拉格朗日方法 (Augmented Lagrangian) 处理约束优化问题,主要用于车辆轨迹规划和控制。
 
 ## 核心架构
 
-### 层次结构
+### 1. 三层架构设计
 
-```
-ILQR 求解器 (ilqr.py / fast_ilqr.py / new_al_ilqr.h)
-    │
-    ├─► ILQRNode 节点列表
-    │     ├─ 状态 (state) 和控制 (control)
-    │     ├─ 动力学函数 dynamics() 及雅可比
-    │     ├─ 代价函数 cost() 及导数
-    │     └─ 约束处理(通过 Constraints 对象)
-    │
-    └─► Constraints 约束对象(可选)
-          ├─ BoxConstraint: 盒式约束
-          ├─ LinearConstraints: 线性约束
-          ├─ QuadraticConstraints: 二次约束(C++ only)
-          └─ DynamicLinearConstraints: 时变线性约束(C++ only)
-```
+- **约束层** (`cilqr/al_ilqr_cpp/constraints/`): 定义各种约束类型
+  - `Constraints`: 基础约束接口
+  - `LinearConstraints`: 线性约束 (B*u + A*x <= C)
+  - `BoxConstraints`: 盒式约束 (状态和控制的上下界)
+  - `QuadraticConstraints`: 二次约束 (用于障碍物避障,如圆形障碍物)
+  - `DynamicLinearConstraints`: 动态线性约束
 
-### 关键概念
+- **模型层** (`cilqr/al_ilqr_cpp/model/`): 定义车辆动力学模型
+  - `NewILQRNode`: iLQR 节点基类,封装代价函数、动力学和约束
+  - `NewBicycleNode`: 完整动力学自行车模型 (6维状态: [x, y, θ, δ, v, a], 2维控制: [δ_rate, a_rate])
+  - `NewLatBicycleNode`: 横向自行车模型 (4维状态)
+  - `parallel_compution_function.h`: 并行计算优化
 
-**节点 (Node)**:
-- 每个时间步对应一个节点,包含该时刻的状态、控制、目标、代价函数和约束
-- 基类: `ILQRNode` (Python) / `NewILQRNode<StateDim, ControlDim>` (C++)
-- 具体实现:
-  - 横向模型: `LatBicycleKinematicNode` / `NewLatBicycleNode<4, 1>`
-  - 完整模型: `FullBicycleDynamicNode` / `NewBicycleNode6_2`
+- **求解器层** (`cilqr/al_ilqr_cpp/`): 核心 iLQR 算法
+  - `new_al_ilqr.h`: 增广拉格朗日 iLQR 求解器,实现双层优化:
+    - 外层循环: 更新拉格朗日乘子 λ 和惩罚系数 μ
+    - 内层循环: 标准 iLQR (Backward-Forward 迭代)
+  - 支持并行线搜索优化 (`ParallelLinearSearch`)
 
-**求解器 (Solver)**:
-- 管理节点列表,执行优化循环
-- 主要方法:
-  - `linearized_initial_guess()`: 使用 LQR 生成初始轨迹
-  - `backward()`: 反向传播计算增益
-  - `forward()`: 前向传播更新轨迹
-  - `optimize()`: 主优化循环
+### 2. Python 绑定架构
 
-**约束处理**:
-- Python 基础版本: 约束直接内置在节点中
-- Python 优化版本: 通过 `Constraints` 对象传递给 `FastBicycleNode`
-- C++ 版本: 约束作为模板参数传递给节点
+`ilqr_pybind.cc` 使用 pybind11 将 C++ 类暴露给 Python:
+- 约束绑定: `bind_constraints`, `bind_box_constraints`, `bind_quadratic_constraints`
+- 节点绑定: `bind_new_bicycle_node`, `bind_new_lat_bicycle_node`
+- 求解器绑定: `bind_new_al_ilqr`
 
----
+命名约定: `ClassName<state_dim>_<control_dim>_<num_constraints>`
+- 例如: `BoxConstraints6_2` (6维状态, 2维控制)
+- 例如: `QuadraticConstraints6_2_5` (6维状态, 2维控制, 5个约束)
 
-## 项目结构
+## 构建系统
 
-### Python 核心模块 (`cilqr/`)
+项目使用 **Bazel** 构建系统:
 
-**求解器**:
-- `ilqr.py`: 基础 iLQR 求解器
-- `fast_ilqr.py`: 优化版求解器,支持约束对象
+### 主要构建命令
 
-**节点实现**:
-- `ilqr_node.py`: 节点抽象基类
-- `lat_bicycle_node.py`: 横向自行车运动学模型(4 维状态: x, y, θ, δ)
-- `full_bicycle_dynamic_node.py`: 完整动力学模型(6 维状态: x, y, θ, δ, v, a)
-- `fast_bicycle_node.py`: 优化版节点,支持 4/6 维模型切换
+```bash
+# 进入 C++ 代码目录
+cd cilqr/al_ilqr_cpp
 
-**约束模块**:
-- `constraints.py`: 约束抽象基类
-- `box_constrains.py`: 盒式约束(状态和控制的上下界)
-- `linear_constraints.py`: 一般线性不等式约束
+# 构建 Python 绑定模块 (生成 ilqr_pybind.so)
+bazel build //:ilqr_pybind --config=opt
 
-**工具函数**:
-- `rk2.py`: RK2 积分器
-- `jac.py`, `jac_lat_dynamic.py`, `jac_full_dynamic.py`: 雅可比计算工具
+# 构建 C++ 测试程序
+bazel build //:test_new_al_ilqr
+bazel build //:test_lat_al_ilqr
+bazel build //:test_dynamic_constraints_ilqr
 
-### C++ 核心模块 (`cilqr/al_ilqr_cpp/`)
-
-**求解器**:
-- `new_al_ilqr.h`: 模板化高性能 iLQR 求解器
-
-**车辆模型** (`model/`):
-- `new_ilqr_node.h`: 节点基类模板
-- `new_bicycle_node.h`: 通用自行车模型(支持 4 维和 6 维)
-- `new_lat_bicycle_node.h`: 横向专用模型
-- `node_bind.h`: pybind11 绑定
-
-**约束模块** (`constraints/`):
-- `constraints.h`: 约束基类
-- `box_constraints.h`: 盒式约束
-- `linear_constraints.h`: 线性约束
-- `quadratic_constraints.h`: 二次约束(用于障碍物避让)
-- `dynamic_linear_constraints.h`: 时变线性约束
-- `constraints_bind.h`: pybind11 绑定
-
-**构建文件**:
-- `BUILD`: Bazel 构建规则
-- `MODULE.bazel`: Bazel 模块配置(新版)
-- `WORKSPACE`: Bazel 工作空间配置(旧版,包含 Eigen 和 pybind11 依赖)
-- `eigen.BUILD`: Eigen 库构建规则
-
----
-
-## 算法流程
-
-### 主优化循环
-
-```
-初始化: linearized_initial_guess()
-  ├─ 使用 LQR 生成初始轨迹
-  └─ 初始化 ALM 参数: λ=0, μ=1
-
-外层循环 (ALM): max_outer_iter 次
-  │
-  ├─ 内层循环 (iLQR): max_inner_iter 次
-  │   ├─ backward(): 反向传播计算增益 K, k
-  │   ├─ forward(): 前向传播更新轨迹(线搜索)
-  │   └─ 检查收敛: |ΔJ| < tol
-  │
-  ├─ 计算约束违反度: violation
-  │
-  └─ 更新 ALM 参数:
-      ├─ if violation < 1e-3: 收敛
-      ├─ elif violation < 1e-1: 更新 λ
-      └─ else: 增大 μ (μ ← 8μ)
+# 运行 C++ 测试
+bazel run //:test_new_al_ilqr
 ```
 
-### 代价函数
+### 构建配置
 
-**基础代价**:
-```
-J = Σ[(x - x_goal)ᵀQ(x - x_goal) + uᵀRu]
-```
+- 优化标志: `-O3 -march=native -DEIGEN_VECTORIZE`
+- 编译调试版本: `bazel build //:ilqr_pybind -c dbg --copt=-g`
+- 清除缓存: `bazel clean --expunge`
 
-**增广拉格朗日代价** (处理约束 c(x,u) ≤ 0):
-```
-L_A = J + (1/(2μ))(||P(λ - μc)||² - ||λ||²)
-其中 P(·) 是投影到非负域的算子
-```
+### 依赖项
 
----
+- **Eigen 3.3.7**: 线性代数库
+- **pybind11 2.13.6**: Python-C++ 绑定
+- 依赖在 `WORKSPACE` 文件中通过 `http_archive` 管理
 
-## 车辆模型说明
+### 生成的输出
 
-### 横向自行车运动学模型
+- Python 模块: `bazel-bin/ilqr_pybind.so`
+- Python 代码需要将此路径添加到 `sys.path`:
+  ```python
+  sys.path.append("/path/to/cilqr/al_ilqr_cpp/bazel-bin")
+  import ilqr_pybind
+  ```
 
-**状态**: `x = [x, y, θ, δ]` (位置、航向角、前轮转角)
-**控制**: `u = [δ̇]` (前轮转角速率)
-**假设**: 纵向速度 v 恒定
+## Python 测试
 
-**动力学方程**:
-```
-ẋ = v cos(θ)
-ẏ = v sin(θ)
-θ̇ = (v/L) tan(δ)
-δ̇ = u
-```
+### 主要测试文件
 
-**适用场景**: 低速规划、停车场景、纵向速度已知
+- `cilqr/test_pybind.py`: 完整的 Python 绑定测试,演示:
+  1. 生成 S 形参考轨迹
+  2. 盒式约束优化
+  3. 带障碍物的二次约束优化
+  4. 结果可视化对比
 
-### 完整自行车动力学模型
+### 运行 Python 测试
 
-**状态**: `x = [x, y, θ, δ, v, a]` (位置、航向角、前轮转角、速度、加速度)
-**控制**: `u = [δ̇, j]` (前轮转角速率、加加速度 jerk)
+```bash
+# 确保已构建 ilqr_pybind.so
+cd cilqr/al_ilqr_cpp
+bazel build //:ilqr_pybind
 
-**动力学方程**:
-```
-ẋ = v cos(θ)
-ẏ = v sin(θ)
-θ̇ = (v/L) tan(δ)
-δ̇ = u[0]
-v̇ = a
-ȧ = u[1]
+# 返回项目根目录运行测试
+cd ../..
+python cilqr/test_pybind.py
 ```
 
-**适用场景**: 高速规划、需要加减速的场景、完整运动规划
+## 关键实现细节
 
----
+### iLQR 算法流程
 
-## 编译配置
+1. **初始化** (`linearizedInitialGuess`): 使用 LQR 生成初始轨迹
+2. **外层迭代**: 增广拉格朗日法更新约束处理
+   - 计算约束违反 (`ComputeConstraintViolation`)
+   - 更新拉格朗日乘子 λ (`UpdateLambda`)
+   - 更新惩罚系数 μ (`UpdateMu`)
+3. **内层迭代** (`ILQRProcess`):
+   - 更新动态约束 (`UpdateConstraints`)
+   - 计算导数 (`CalcDerivatives`): 代价函数和动力学的雅可比/海森矩阵
+   - 向后传播 (`Backward`): 计算反馈增益 K 和前馈项 k
+   - 向前传播 (`Forward`): 线搜索更新轨迹
 
-### C++ 编译优化选项
+### 数值优化技巧
 
-所有 C++ 目标使用以下优化标志(在 `BUILD` 文件中):
-```python
-copts = [
-    "-O3",                  # 最高优化级别
-    "-march=native",        # 针对本地 CPU 优化(启用 AVX/SSE 等)
-    "-faligned-new",        # C++17 对齐内存分配
-    "-DEIGEN_VECTORIZE"     # 启用 Eigen 向量化
-]
-```
+- **RK2 积分**: 使用二阶 Runge-Kutta 方法离散化连续动力学
+- **角度归一化**: 自动处理 θ 和 δ 的周期性
+- **并行线搜索**: 同时评估多个步长 (通过 `PARALLEL_NUM` 定义)
+- **正则化**: 动力学模型中添加小量 k 防止数值问题
 
-### Eigen 依赖配置
+### 约束处理
 
-Eigen 通过 HTTP archive 方式获取,配置在 `WORKSPACE` 文件中:
-- 版本: 3.3.7
-- 来源: GitHub 或阿波罗 CDN 镜像
+- 盒式约束: 直接通过上下界限制
+- 二次约束: 用于圆形障碍物,形式为 `x^T*Q*x + A^T*x + C <= 0`
+- 动态约束: 根据当前轨迹动态添加约束 (如避障)
 
-如果编译失败,检查 `eigen.BUILD` 文件中的头文件路径配置。
-
-### pybind11 配置
-
-- pybind11: v2.13.6
-- pybind11_bazel: b162c7c 提交
-- Python 配置通过 `python_configure()` 自动检测
-
----
-
-## 开发指南
+## 开发注意事项
 
 ### 添加新的车辆模型
 
-1. **Python 实现**:
-   - 继承 `ILQRNode` 基类
-   - 实现 `dynamics()`, `dynamics_jacobian()`, `cost()` 等方法
-   - 参考 `lat_bicycle_node.py` 或 `full_bicycle_dynamic_node.py`
-
-2. **C++ 实现**:
-   - 继承 `NewILQRNode<StateDim, ControlDim>` 模板类
-   - 实现纯虚函数: `dynamics()`, `dynamics_diff()`, `running_cost_diff()` 等
-   - 参考 `model/new_bicycle_node.h`
+1. 在 `model/` 下创建新的 node 类,继承 `NewILQRNode<state_dim, control_dim>`
+2. 实现 `dynamics()` 和 `dynamics_jacobian()` 方法
+3. 在 `model/BUILD` 中添加 cc_library
+4. 在 `ilqr_pybind.cc` 中添加绑定
 
 ### 添加新的约束类型
 
-1. **Python**:
-   - 继承 `Constraints` 基类
-   - 实现 `constrains()`, `constrains_jacobian()`, `constrains_hessian()`
-   - 参考 `box_constrains.py` 或 `linear_constraints.py`
+1. 在 `constraints/` 下创建新类,继承 `Constraints<state_dim, control_dim, num_constraints>`
+2. 实现约束评估和梯度计算
+3. 在 `constraints/BUILD` 中添加 cc_library
+4. 在 `constraints_bind.h` 中添加绑定函数
 
-2. **C++**:
-   - 继承 `Constraints<ConstraintDim>` 模板类
-   - 实现约束计算和导数方法
-   - 参考 `constraints/box_constraints.h`
+### 调试技巧
 
-### 验证雅可比计算
+- 编译调试版本: `bazel build //:ilqr_pybind -c dbg --copt=-g`
+- 取消注释 `new_al_ilqr.h` 中的时间测量代码以分析性能
+- 使用 `std::cout` 输出中间变量 (代码中已有注释的示例)
 
-使用数值微分验证解析雅可比:
+## 典型使用流程
+
 ```python
-from scipy.optimize import approx_fprime
+# 1. 创建约束对象
+constraints = ilqr_pybind.BoxConstraints6_2(state_min, state_max, control_min, control_max)
 
-# 验证动力学雅可比
-def dynamics_func(x):
-    return node.dynamics(x, u)
+# 2. 创建节点列表 (每个时间步一个节点)
+nodes = []
+for i in range(horizon + 1):
+    node = ilqr_pybind.NewBicycleNodeBoxConstraints6_2(L, dt, k, goal_states[i], Q, R, constraints)
+    nodes.append(node)
 
-A_numerical = approx_fprime(x, dynamics_func, epsilon=1e-6)
-A_analytical = node.dynamics_jacobian(x, u)[0]
-error = np.linalg.norm(A_numerical - A_analytical)
-assert error < 1e-4, f"雅可比误差过大: {error}"
+# 3. 创建求解器
+solver = ilqr_pybind.NewALILQR6_2(nodes, init_state)
+
+# 4. 执行优化
+solver.optimize(max_outer_iter, max_inner_iter, max_violation)
+
+# 5. 获取结果
+x_list = solver.get_x_list()  # 状态轨迹 (state_dim × horizon+1)
+u_list = solver.get_u_list()  # 控制序列 (control_dim × horizon)
 ```
-
----
-
-## 性能优化建议
-
-### 选择实现版本
-
-| 场景 | 推荐实现 | 预期性能 |
-|------|---------|---------|
-| 算法研究、原型开发 | Python | 开发快速,调试方便 |
-| 在线 MPC (10+ Hz) | C++ | 运行时间 < 20ms |
-| 离线轨迹优化 | Python/C++ | 根据实时性要求选择 |
-
-### 参数调优
-
-**时间步长 dt**:
-- 低速 (< 10 m/s): `dt = 0.1 - 0.2 s`
-- 中速 (10-20 m/s): `dt = 0.05 - 0.1 s`
-- 高速 (> 20 m/s): `dt = 0.02 - 0.05 s`
-
-**迭代次数**:
-- 实时应用: `max_inner_iter=5-10`, `max_outer_iter=5-10`
-- 离线规划: `max_inner_iter=20-50`, `max_outer_iter=20`
-
-**权重矩阵**:
-- 状态权重 `Q`: 对角矩阵,关注的状态维度权重较大(如 y, θ)
-- 控制权重 `R`: 较大的 R 使控制更平滑,较小的 R 提高跟踪精度
-
----
-
-## 常见问题排查
-
-### 优化不收敛
-
-**症状**: 代价振荡或约束违反度不降低
-
-**解决方案**:
-1. 放松约束边界
-2. 减小 μ 增长因子(从 8.0 改为 4.0)
-3. 增大外层迭代次数
-4. 改善初始猜测(使用更接近可行解的初始状态)
-5. 调整权重矩阵(增大 Q,减小 R)
-
-### 角度跳变
-
-**症状**: 航向角 θ 或前轮转角 δ 在 ±π 处跳变
-
-**解决方案**:
-确保动力学函数中对角度进行归一化:
-```python
-def normalize_angle(angle):
-    return (angle + np.pi) % (2 * np.pi) - np.pi
-```
-
-### C++ 编译失败
-
-**Eigen 头文件找不到**:
-- 检查 `WORKSPACE` 文件中的 Eigen 配置
-- 确认 `eigen.BUILD` 文件路径正确
-- 验证网络连接(Eigen 从 GitHub 下载)
-
-**pybind11 相关错误**:
-- 确认 Python 版本 >= 3.7
-- 检查 Python 开发头文件已安装: `sudo apt install python3-dev`
-
-### Python 绑定导入失败
-
-**找不到 .so 文件**:
-```python
-ImportError: ilqr_pybind.so: cannot open shared object file
-```
-
-**解决方案**:
-1. 检查 `.so` 文件是否生成: `ls cilqr/al_ilqr_cpp/bazel-bin/ilqr_pybind.so`
-2. 确认路径已添加到 `sys.path`
-3. 验证文件权限: `chmod +x cilqr/al_ilqr_cpp/bazel-bin/ilqr_pybind.so`
-
----
-
-## 项目维护
-
-### Git 状态注意事项
-
-- `bazel-*` 目录(bazel-bin, bazel-out 等)已被 `.gitignore` 忽略
-- 不要提交编译生成的 `.so` 文件
-- `MODULE.bazel.lock` 文件会随依赖更新而改变
-
-### 文档
-
-完整文档位于 `docs/` 目录:
-- `00_项目概览.md`: 项目整体介绍
-- `01_算法原理.md`: iLQR 和 ALM 数学原理
-- `02_快速开始指南.md`: 安装和使用教程
-- `03_API参考.md`: 完整 API 文档
-
-### 许可证
-
-项目采用 LICENSE 文件中规定的许可证。

@@ -1,0 +1,84 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python C++ 混合调试",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/home/pnc/miniconda3/bin/python",
+            "args": [
+                "${workspaceFolder}/cilqr/test_pybind.py"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "允许挂起断点",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "加载 Python 扩展",
+                    "text": "source /usr/share/gdb/auto-load/usr/bin/python3-gdb.py",
+                    "ignoreFailures": true
+                }
+            ],
+            "sourceFileMap": {
+                "/proc/self/cwd": "${workspaceFolder}"
+            },
+            // "preLaunchTask": "rebuild_debug"
+        },
+        {
+            "name": "Python 调试（纯Python）",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/cilqr/test_pybind.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "(gdb) 调试 test_new_al_ilqr",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/cilqr/al_ilqr_cpp/bazel-bin/test_new_al_ilqr_debug",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/cilqr/al_ilqr_cpp",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "将反汇编风格设置为 Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Enable pretty-printing for Eigen",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                // {
+                //     "description": "Load Eigen pretty printer",
+                //     "text": "python /home/pnc/Documents/github/eigen/debug/gdb/printers.py",
+                //     "ignoreFailures": true
+                // },
+                {
+                    "description": "Load .gdbinit",
+                    "text": "source ${workspaceFolder}/.vscode/.gdbinit",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "",
+            "miDebuggerPath": "/usr/bin/gdb"
+        }
+    ]
+}
